@@ -32,7 +32,7 @@ jobs:
       - name: Move and rename APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/*.apk out/coolplayer-debug.apk
+          cp app/build/outputs/apk/debug/*.apk out/ooo-debug.apk
 
       # 用固定 tag "test" 发布/更新一个 prerelease，每次手动运行都会覆盖它
       - name: Publish prerelease
@@ -42,4 +42,4 @@ jobs:
           name: PasswordStore test
           prerelease: true
           make_latest: false
-          files: out/coolplayer-debug.apk
+          files: out/ooo-debug.apk
