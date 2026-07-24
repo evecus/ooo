@@ -1,29 +1,19 @@
 package com.example.soexecutor
 
-import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
-import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Process
 import android.text.method.ScrollingMovementMethod
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
-import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import com.example.soexecutor.databinding.ActivityMainBinding
 import java.io.File
 import java.io.FileOutputStream
@@ -31,69 +21,30 @@ import java.io.FileOutputStream
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var selectedSoFile: File? = null
     private var copiedSoFile: File? = null
     private var terminalDialog: AlertDialog? = null
     private var terminalOutput: TextView? = null
     private var scrollView: ScrollView? = null
-    private var runningProcess: Process? = null
+    private var runningProcess: java.lang.Process? = null
 
     private val selectFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            handleSelectedFile(it)
-        }
-    }
-
-    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) {
-            openFilePicker()
-        } else {
-            Toast.makeText(this, R.string.permission_denied, Toast.LENGTH_SHORT).show()
-        }
+        uri?.let { handleSelectedFile(it) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
         setupViews()
     }
 
     private fun setupViews() {
-        binding.btnSelectFile.setOnClickListener {
-            checkPermissionAndPickFile()
-        }
-
-        binding.btnExecute.setOnClickListener {
-            executeSoFile()
-        }
-    }
-
-    private fun checkPermissionAndPickFile() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_FILES) == PackageManager.PERMISSION_GRANTED
-                || ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_DOCUMENTS) == PackageManager.PERMISSION_GRANTED) {
-                openFilePicker()
-            } else {
-                requestPermissionLauncher.launch(Manifest.permission.READ_MEDIA_FILES)
-            }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-                openFilePicker()
-            } else {
-                requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-        }
+        binding.btnSelectFile.setOnClickListener { openFilePicker() }
+        binding.btnExecute.setOnClickListener { executeSoFile() }
     }
 
     private fun openFilePicker() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/octet-stream"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/octet-stream", "application/x-sharedlib"))
-        }
-        selectFileLauncher.launch(intent)
+        selectFileLauncher.launch(arrayOf("application/octet-stream", "application/x-sharedlib"))
     }
 
     private fun handleSelectedFile(uri: Uri) {
@@ -105,10 +56,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        selectedSoFile = copyToPrivateDir(uri, fileName)
-        copiedSoFile = selectedSoFile
-
-        selectedSoFile?.let {
+        copiedSoFile = copyToPrivateDir(uri, fileName)
+        copiedSoFile?.let {
             binding.tvSelectedFile.text = getString(R.string.copied_to, it.absolutePath)
             binding.tvSelectedFile.setTextColor(android.graphics.Color.parseColor("#4CAF50"))
             binding.btnExecute.isEnabled = true
@@ -135,17 +84,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun copyToPrivateDir(uri: Uri, fileName: String): File? {
         val privateDir = File(filesDir, "so_files")
-        if (!privateDir.exists()) {
-            privateDir.mkdirs()
-        }
+        if (!privateDir.exists()) privateDir.mkdirs()
 
         val destFile = File(privateDir, fileName)
-
         try {
             contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(destFile).use { output ->
-                    input.copyTo(output)
-                }
+                FileOutputStream(destFile).use { output -> input.copyTo(output) }
             }
             destFile.setExecutable(true, false)
             return destFile
@@ -167,24 +111,24 @@ class MainActivity : AppCompatActivity() {
             Thread {
                 try {
                     System.load(file.absolutePath)
-
-                    val command = if (params.isNotEmpty()) {
-                        "${file.absolutePath} $params"
-                    } else {
-                        file.absolutePath
-                    }
-
                     showTerminalDialog()
 
-                    val processBuilder = ProcessBuilder(command.split(" ").toTypedArray())
-                    processBuilder.redirectErrorStream(true)
-                    runningProcess = processBuilder.start()
+                    val cmdParts = mutableListOf(file.absolutePath)
+                    if (params.isNotEmpty()) {
+                        cmdParts.addAll(params.split(" "))
+                    }
 
-                    val inputStream = runningProcess!!.inputStream
+                    val pb = ProcessBuilder(cmdParts)
+                    pb.redirectErrorStream(true)
+                    runningProcess = pb.start()
+
+                    val input = runningProcess!!.inputStream
                     val buffer = ByteArray(1024)
                     var len: Int
 
-                    while (runningProcess!!.isAlive && inputStream.read(buffer).also { len = it } != -1) {
+                    while (runningProcess!!.isAlive) {
+                        len = input.read(buffer)
+                        if (len == -1) break
                         val output = String(buffer, 0, len)
                         appendTerminalOutput(output)
                     }
@@ -210,22 +154,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTerminalDialog() {
         runOnUiThread {
+            if (terminalDialog != null && terminalDialog!!.isShowing) return@runOnUiThread
+
             val view = LayoutInflater.from(this).inflate(R.layout.dialog_terminal, null)
             terminalOutput = view.findViewById(R.id.tvTerminalOutput)
             scrollView = view.findViewById(R.id.scrollTerminal)
             val btnStop = view.findViewById<Button>(R.id.btnStop)
 
-            terminalOutput!!.movementMethod = ScrollingMovementMethod()
+            terminalOutput?.movementMethod = ScrollingMovementMethod()
 
-            btnStop.setOnClickListener {
-                stopProcess()
-            }
+            btnStop.setOnClickListener { stopProcess() }
 
             terminalDialog = AlertDialog.Builder(this, R.style.Theme_SoExecutor_TerminalDialog)
                 .setView(view)
                 .setCancelable(false)
                 .create()
-
             terminalDialog!!.show()
         }
     }
@@ -233,9 +176,7 @@ class MainActivity : AppCompatActivity() {
     private fun appendTerminalOutput(text: String) {
         runOnUiThread {
             terminalOutput?.append(text)
-            scrollView?.post {
-                scrollView?.fullScroll(View.FOCUS_DOWN)
-            }
+            scrollView?.post { scrollView?.fullScroll(View.FOCUS_DOWN) }
         }
     }
 
