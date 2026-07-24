@@ -107,12 +107,10 @@ class MainActivity : AppCompatActivity() {
             binding.btnExecute.isEnabled = false
             binding.progressBar.visibility = ProgressBar.VISIBLE
             binding.tvStatus.text = getString(R.string.executing)
+            showTerminalDialog()
 
             Thread {
                 try {
-                    System.load(file.absolutePath)
-                    showTerminalDialog()
-
                     val cmdParts = mutableListOf(file.absolutePath)
                     if (params.isNotEmpty()) {
                         cmdParts.addAll(params.split(" "))
@@ -122,7 +120,7 @@ class MainActivity : AppCompatActivity() {
                     pb.redirectErrorStream(true)
                     runningProcess = pb.start()
 
-                    val input = runningProcess!!.inputStream
+                    val input = runningProcess!!.getInputStream()
                     val buffer = ByteArray(1024)
                     var len: Int
 
